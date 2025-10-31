@@ -2,6 +2,7 @@ import config as cfg
 # import ma_model_tx1 as mm
 import ma_model_tx2 as mm
 import run_simulation as rs
+import numpy as np
 
 
 # --- 메인 실행 ---
@@ -32,7 +33,11 @@ if __name__ == "__main__":
     # --- 3. 2D 맵 시뮬레이션 ---
     r_example_used, summary = rs.run_single_point_analysis(g_t_fixed, channel_env, path_loss_db)
     # rs.plot_system_layout(r_example_used, channel_env, summary_text=summary)
-    r1, r2 = rs.make_two_rx_positions(cfg.FPA_pos_fixed, offset=0.005)
+    center = np.array([0.0, 0.0])
+    r1, r2 = mm.make_two_rx_positions_random_square(center,
+                                           region_size_m=None,
+                                           min_sep_ratio=0.2,
+                                           seed=2025)
 
     rs.plot_system_layout_two_rx(r1, r2, g_t_fixed, channel_env, path_loss_db)
 

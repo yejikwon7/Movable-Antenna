@@ -194,3 +194,25 @@ def plot_two_rx_positions(tx_pos, fc, Pt_dBm, region_center=None):
     ax.legend()
     plt.grid(True)
     plt.show()
+
+def make_two_rx_positions_random_square(center,
+                                        region_size_m=None,
+                                        min_sep_ratio=0.2,
+                                        seed=None):
+
+    rng = np.random.default_rng(seed)
+    A = cfg.A if region_size_m is None else float(region_size_m)
+    half_A = A / 2.0
+
+    # 최소 분리 거리
+    min_sep = min_sep_ratio * A
+
+    # 반복적으로 샘플해서 조건 만족할 때까지
+    for _ in range(10_000):
+        # [-half_A, half_A] 범위에서 균일
+        r1 = center + rng.uniform(low=-half_A, high=half_A, size=2)
+        r2 = center + rng.uniform(low=-half_A, high=half_A, size=2)
+        if np.linalg.norm(r1 - r2) >= min_sep:
+            return r1, r2
+
+    return r1, r2

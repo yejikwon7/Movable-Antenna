@@ -132,194 +132,13 @@ def compare_ma_vs_fpa(power_map_dbm, g_t_fixed, channel_env, path_loss_db):
     print(f"MA (영역 내 최대) 수신 전력: {power_ma_max_dbm:.2f} dBm")
     print(f"성능 향상 (MA Gain): {power_ma_max_dbm - power_fpa_dbm:.2f} dB")
 
-# --- rx = 1 ---
-# def plot_system_layout(r_example_pos, channel_env, summary_text=None):
-#     print(f"\n[시각화 1: 시스템 레이아웃]")
-#
-#     theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
-#     L_r = cfg.lr
-#     A_meters = cfg.A
-#     D_tx_rx = cfg.d_tx_rx
-#     half_A = A_meters / 2
-#
-#     fig, (axL, axR) = plt.subplots(
-#         1, 2, figsize=(14, 6),
-#         gridspec_kw={'width_ratios': [1.6, 1]}
-#     )
-#
-#     # ---------- (좌) 글로벌 배치 (Global Layout) ----------
-#     axL.plot(-D_tx_rx, 0, 'ks', markersize=10, label='Tx antenna')
-#     axL.text(-D_tx_rx, 0.15, 'Tx', ha='center') # 'Tx' 텍스트 표시
-#
-#
-#     rx_box = plt.Rectangle((-half_A, -half_A), A_meters, A_meters,
-#                            edgecolor='tab:blue', facecolor='none', lw=1.8,
-#                            label=f'Rx MA region ({cfg.A_normalized}λ × {cfg.A_normalized}λ)')
-#     axL.add_patch(rx_box)
-#
-#     axL.plot(cfg.FPA_pos_fixed[0], cfg.FPA_pos_fixed[1], 'gx', ms=10, mew=2, label='Rx FPA (fixed)')
-#     axL.plot(r_example_pos[0], r_example_pos[1], 'ro', ms=8, label='Rx MA (current)')
-#
-#     axL.annotate(f'd = {D_tx_rx:.1f} m',
-#                  xy=(-D_tx_rx, 0), xytext=(-D_tx_rx/2, -0.1*A_meters),
-#                  arrowprops=dict(arrowstyle='<->'), ha='center')
-#
-#     axL.set_title('Global layout')
-#     axL.set_xlabel('x (m)'); axL.set_ylabel('y (m)')
-#     axL.set_xlim(-D_tx_rx - A_meters, A_meters)
-#     ylim = cfg.d_tx_rx * 0.05
-#     axL.set_ylim(-ylim, ylim)
-#     axL.set_aspect('equal', adjustable='box')
-#     axL.grid(True, ls=':')
-#     axL.legend(loc='lower right')
-#
-#     v_aoa = mm.aoa_unit_vectors(theta_r, phi_r)
-#     pair_info = mm.pairwise_path_metrics(v_aoa)
-#
-#     # ---------- (우) Rx 영역 줌인 (Rx Region Zoom-in) ----------
-#     axR.add_patch(plt.Rectangle((-half_A, -half_A), A_meters, A_meters,
-#                                 edgecolor='tab:blue', facecolor='none', lw=1.8))
-#
-#     axR.plot(cfg.FPA_pos_fixed[0], cfg.FPA_pos_fixed[1], 'gx', ms=10, mew=2, label='Rx FPA (fixed)')
-#     axR.plot(r_example_pos[0], r_example_pos[1], 'ro', ms=8, label='Rx MA (current)')
-#
-#     d_rx = np.linalg.norm(r_example_pos - cfg.FPA_pos_fixed)
-#     axR.text(0.02, 0.98, f'‖r_MA - r_FPA‖ = {d_rx:.3f} m',
-#              transform=axR.transAxes, ha='left', va='top',
-#              bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='0.7'))
-#
-#     arrow_length = half_A * 0.9
-#     for i in range(L_r):
-#         dx = -arrow_length * np.cos(theta_r[i]) * np.sin(phi_r[i])
-#         dy = -arrow_length * np.sin(theta_r[i])
-#         if np.hypot(dx, dy) < 1e-6:
-#             dx = -arrow_length * 0.707; dy = -arrow_length * 0.707
-#         axR.arrow(r_example_pos[0] - dx, r_example_pos[1] - dy, dx, dy,
-#                   head_width=half_A*0.06, head_length=half_A*0.1,
-#                   fc='green', ec='green', alpha=0.7, length_includes_head=True)
-#
-#         axR.text(r_example_pos[0] - 1.05*dx, r_example_pos[1] - 1.05*dy,
-#                  f'Path {i+1}', color='green', fontsize=9)
-#
-#     axR.set_title('Rx region (zoom-in)')
-#     axR.set_xlim(-half_A, half_A); axR.set_ylim(-half_A, half_A)
-#     axR.set_xlabel('x (m)'); axR.set_ylabel('y (m)')
-#     axR.set_aspect('equal', adjustable='box'); axR.grid(True, ls=':')
-#     axR.legend(loc='upper right')
-#
-#     if summary_text:
-#         axR.text(0.02, 0.98, summary_text, transform=axR.transAxes,
-#                  va='top', ha='left',
-#                  bbox=dict(boxstyle='round,pad=0.35', fc='white', ec='0.75')) # 텍스트 박스 스타일 지정
-#
-#     plt.tight_layout()
-#     plt.show()
-#
-#     if pair_info:
-#         print("\n[Pairwise AoA metrics at Rx]")
-#         for p in pair_info:
-#             print(f"  Path {p['i']+1} ↔ Path {p['j']+1}: "
-#                   f"euclid={p['euclid']:.4f}, angle={p['angle_deg']:.2f}°")
-
-# --- legend 수정 ---
-# def plot_system_layout(r_example_pos, channel_env, summary_text=None,
-#                        show_two_rx=True, offset_lambda=0.35, angle_deg=10.0):
-#     """
-#     show_two_rx=True이면 Rx 영역에 '현재 MA' 빨간 점을 2개 찍고
-#     두 점 사이 거리도 표시한다.
-#     """
-#     import numpy as np
-#     theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
-#     L_r = cfg.lr
-#     A_meters = cfg.A
-#     D_tx_rx = cfg.d_tx_rx
-#
-#     fig = plt.figure(figsize=(14, 6))
-#     gs = fig.add_gridspec(1, 2, width_ratios=[1.1, 1.0])
-#     ax0 = fig.add_subplot(gs[0, 0])  # Global layout
-#     ax1 = fig.add_subplot(gs[0, 1])  # Rx zoom-in
-#
-#     half_A = A_meters / 2
-#
-#     # ---------- Left (Global) ----------
-#     ax0.add_patch(plt.Rectangle((-D_tx_rx-0.5, -0.4), 1.0, 0.8,
-#                                 edgecolor='k', facecolor='k', alpha=0.8, label='Tx antenna'))
-#     # Rx 지역 사각형 (전역좌표에서 원점 근처)
-#     ax0.add_patch(plt.Rectangle((-half_A, -half_A), A_meters, A_meters,
-#                                 edgecolor='tab:blue', facecolor='tab:blue', alpha=0.12,
-#                                 label=f'Rx MA region ({cfg.A_normalized:.1f}λ × {cfg.A_normalized:.1f}λ)'))
-#     # 거리지시
-#     ax0.annotate(f"d = {D_tx_rx:.1f} m",
-#                  xy=(-D_tx_rx * 0.15, +0.06 * half_A), ha='center', va='bottom', fontsize=11)
-#
-#     ax0.set_xlim(-D_tx_rx - 2, 2)
-#     ax0.set_ylim(-2.8 * half_A, 2.8 * half_A)
-#     ax0.set_yticks([])
-#     ax0.set_ylabel('')
-#     ax0.set_xlabel('x (m)')
-#     ax0.set_title('Global layout')
-#     ax0.set_aspect('equal')
-#     ax0.grid(True, ls='--', alpha=0.35)
-#
-#     ax0.legend(loc='upper left', bbox_to_anchor=(0.0, -0.22),
-#                   frameon=True, fontsize=11)
-#
-#     plt.subplots_adjust(left=0.08, right=0.82, top=0.92, bottom=0.22, wspace=0.30)
-#
-#     # ---------- Right (Rx zoom-in) ----------
-#     # Rx 중심, FPA(초록 X)
-#     ax1.plot(cfg.FPA_pos_fixed[0], cfg.FPA_pos_fixed[1], 'x', ms=10, mew=2, color='tab:green', label='Rx FPA (fixed)')
-#
-#     # 빨간 점: 1개 또는 2개
-#     if show_two_rx:
-#         r1, r2 = two_rx_positions(center_xy=cfg.FPA_pos_fixed, lam=cfg.lambda_wave,
-#                                   offset_lambda=offset_lambda, angle_deg=angle_deg)
-#         ax1.plot(r1[0], r1[1], 'o', ms=9, color='tab:red', label='Rx MA (current #1)')
-#         ax1.plot(r2[0], r2[1], 'o', ms=9, mfc='none', mec='tab:red', mew=2, label='Rx MA (current #2)')
-#         # 두 점 사이 거리
-#         d12 = np.linalg.norm(r1 - r2)
-#         ax1.text(min(r1[0], r2[0]), min(r1[1], r2[1]) - 0.02,
-#                  f"‖r₁−r₂‖ = {d12:.3f} m", color='tab:red')
-#     else:
-#         ax1.plot(r_example_pos[0], r_example_pos[1], 'o', ms=9, color='tab:red', label='Rx MA (current)')
-#
-#     # 수신 AoA 화살표(초록)
-#     arrow_len = half_A * 0.85
-#     for i in range(L_r):
-#         dx = -arrow_len * np.cos(theta_r[i]) * np.sin(phi_r[i])
-#         dy = -arrow_len * np.sin(theta_r[i])
-#         # 화살
-#         ax1.arrow(cfg.FPA_pos_fixed[0] - dx, cfg.FPA_pos_fixed[1] - dy, dx, dy,
-#                   head_width=half_A*0.06, head_length=half_A*0.1,
-#                   fc='green', ec='green', alpha=0.7, length_includes_head=True)
-#         ax1.text(cfg.FPA_pos_fixed[0] - dx*1.05, cfg.FPA_pos_fixed[1] - dy*1.05,
-#                  f'Path {i+1}', color='green', fontsize=9)
-#
-#     # 요약 박스(겹치지 않게 좌상단)
-#     if summary_text:
-#         ax1.text(-half_A+0.002, half_A-0.002, summary_text,
-#                  va='top', ha='left', fontsize=9,
-#                  bbox=dict(boxstyle='round', fc='white', ec='0.5', alpha=0.9))
-#
-#     ax1.set_xlim(-half_A, half_A)
-#     ax1.set_ylim(-half_A, half_A)
-#     ax1.set_aspect('equal')
-#     ax1.set_xlabel('x (m)')
-#     ax1.set_ylabel('y (m)')
-#     ax1.set_title('Rx region (zoom-in)')
-#     # 범례도 축 밖으로
-#     ax1.legend(loc='upper left', bbox_to_anchor=(1.02, 1.0),
-#                      borderaxespad=0., frameon=True, fontsize=9, ncol=1)
-#     ax1.grid(True, ls='--', alpha=0.4)
-#     plt.tight_layout()
-#     plt.show()
-
 def plot_system_layout_two_rx(r1, r2, g_t_fixed, channel_env, path_loss_db, summary_text=None):
     theta_t, phi_t, theta_r, phi_r, _ = channel_env
     Lr, Lt = len(theta_r), len(theta_t)
 
     A_meters = cfg.A
     half_A = A_meters / 2
+    pad = 0.08
 
     # 1) Figure/axes
     fig = plt.figure(figsize=(14, 6))
@@ -360,7 +179,8 @@ def plot_system_layout_two_rx(r1, r2, g_t_fixed, channel_env, path_loss_db, summ
     ax1.set_title('Rx region (zoom-in)')
     ax1.set_xlabel('x (m)'); ax1.set_ylabel('y (m)')
     ax1.set_aspect('equal')
-    ax1.set_xlim(-0.08, 0.08); ax1.set_ylim(-0.08, 0.09)
+    ax1.set_xlim(-half_A*(1+pad), +half_A*(1+pad))
+    ax1.set_ylim(-half_A*(1+pad), +half_A*(1+pad))
     ax1.grid(True, ls='--', alpha=0.4)
 
     # FPA 위치 표시
@@ -456,7 +276,3 @@ def rx_metrics(r_pos, g_t_fixed, channel_env, path_loss_db, BW=20e6, NF_dB=5.0):
         "AoD_deg": np.degrees(theta_t),
     }
 
-def make_two_rx_positions(center, offset):
-    r1 = center + np.array([0.0, +offset])
-    r2 = center + np.array([0.0, -offset])
-    return r1, r2
