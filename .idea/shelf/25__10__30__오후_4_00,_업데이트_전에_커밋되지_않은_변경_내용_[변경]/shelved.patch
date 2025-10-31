@@ -1,0 +1,896 @@
+Index: ma_model_tx2.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/ma_model_tx2.py b/ma_model_tx2.py
+new file mode 100644
+--- /dev/null	(date 1761807583983)
++++ b/ma_model_tx2.py	(date 1761807583983)
+@@ -0,0 +1,194 @@
++import numpy as np
++import config as cfg  # 설정 파일 임포트
++import matplotlib.pyplot as plt
++
++def watts_to_dbm(watts):
++    epsilon = 1e-30
++    return 10 * np.log10((watts + epsilon) * 1000)
++
++
++def calculate_path_loss_db(distance_m, f_c_hz):
++    epsilon = 1e-9  # 0m 거리 방지
++    lambda_wave = cfg.c / f_c_hz
++    path_loss_linear = ((4 * np.pi * (distance_m + epsilon)) / lambda_wave) ** 2
++    path_loss_db = 10 * np.log10(path_loss_linear)
++    return path_loss_db
++
++
++def create_channel_environment():
++    np.random.seed(cfg.random_seed)
++
++    # 1. 송신(Tx) 측 AoDs
++    theta_t = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lt)
++    phi_t = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lt)
++
++    # 2. 수신(Rx) 측 AoAs
++    theta_r = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lr)
++    phi_r = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lr)
++
++    # 3. 경로 응답 행렬 (Sigma)
++    # (평균 전력 1로 정규화된 CSCG)
++    sigma_matrix = (np.random.randn(cfg.lr, cfg.lt) +
++                    1j * np.random.randn(cfg.lr, cfg.lt)) / np.sqrt(2)
++
++    return theta_t, phi_t, theta_r, phi_r, sigma_matrix
++
++
++def calculate_g_t(t_pos, theta_t, phi_t):
++    x_t, y_t = t_pos
++
++    # rho_t_j 계산 (크기 L_T)
++    rho_t_j_vec = (x_t * np.cos(theta_t) * np.sin(phi_t) +
++                   y_t * np.sin(theta_t))
++
++    # g(t) 벡터 계산 (크기 L_T)
++    g_t = np.exp(1j * 2 * np.pi * rho_t_j_vec / cfg.lambda_wave)
++
++    return g_t
++
++
++def calculate_f_r(r_pos, theta_r, phi_r):
++    x_r, y_r = r_pos
++
++    # rho_r_i 계산 (크기 L_R)
++    rho_r_i_vec = (x_r * np.cos(theta_r) * np.sin(phi_r) +
++                   y_r * np.sin(theta_r))
++
++    # f(r) 벡터 계산 (크기 L_R)
++    f_r = np.exp(1j * 2 * np.pi * rho_r_i_vec / cfg.lambda_wave)
++
++    return f_r
++
++
++def calculate_channel_coefficient(g_t, f_r, sigma_matrix):
++    # f(r)^H (Hermitian transpose), (1, L_R)
++    f_r_hermitian = f_r.conj().T.reshape(1, -1)
++
++    # g(t), (L_T, 1)
++    g_t_col = g_t.reshape(-1, 1)
++
++    # h = (1, L_R) @ (L_R, L_T) @ (L_T, 1)
++    h = (f_r_hermitian @ sigma_matrix @ g_t_col).item()
++
++    return h
++
++def calculate_channel_gain(h_tr):
++    return np.abs(h_tr) ** 2
++
++
++def calculate_received_power_dbm(p_t_dbm, path_loss_db, small_scale_gain_linear):
++    epsilon = 1e-30
++    small_scale_gain_db = 10 * np.log10(small_scale_gain_linear + epsilon)
++
++    received_power_dbm = p_t_dbm - path_loss_db + small_scale_gain_db
++
++    return received_power_dbm
++
++
++def calculate_path_distances(theta_r, phi_r):
++    cfg.lr = len(theta_r)
++    if cfg.lr < 2:
++        print("  (경로가 1개뿐이라 경로 간 거리를 계산할 수 없습니다.)")
++        return
++
++    # 3D 구면 좌표계(theta, phi)를 3D 직교 좌표계(x,y,z) 방향 벡터로 변환
++    vectors = np.zeros((cfg.lr, 3))
++    vectors[:, 0] = np.cos(theta_r) * np.sin(phi_r)  # x
++    vectors[:, 1] = np.sin(theta_r)  # y
++    vectors[:, 2] = np.cos(theta_r) * np.cos(phi_r)  # z (Far-field이므로 z>0 가정)
++
++    print(f"\n[분석 2: {cfg.lr}개 수신 경로(AoA)간 방향 벡터 거리]")
++
++    for i in range(cfg.lr):
++        for j in range(i + 1, cfg.lr):
++            # 두 벡터 (v1, v2) 간의 유클리드 거리 계산: ||v1 - v2||
++            dist = np.linalg.norm(vectors[i] - vectors[j])
++            # 두 벡터 간의 각도(라디안) 계산
++            dot_product = np.dot(vectors[i], vectors[j])
++            angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0))
++            angle_deg = np.degrees(angle_rad)
++
++            print(f"  - 경로 {i + 1} ↔ 경로 {j + 1}:")
++            print(f"    - 방향 벡터 간 거리: {dist:.4f} (0~2 사이 값)")
++            print(f"    - 두 경로 사이 각도: {angle_deg:.2f} 도")
++
++def aoa_unit_vectors(theta_r, phi_r):
++    """
++    Rx 수신 경로의 (theta, phi)를 3D 단위벡터로 변환 (x,y,z).
++    """
++    v = np.zeros((len(theta_r), 3))
++    v[:, 0] = np.cos(theta_r) * np.sin(phi_r)  # x
++    v[:, 1] = np.sin(theta_r)                  # y
++    v[:, 2] = np.cos(theta_r) * np.cos(phi_r)  # z
++    return v
++
++def pairwise_path_metrics(vectors):
++    """
++    경로 단위벡터들 간 유클리드 거리와 각도(도)를 쌍별로 계산해서 리스트로 반환.
++    """
++    L = vectors.shape[0]
++    pairs = []
++    for i in range(L):
++        for j in range(i+1, L):
++            dist = np.linalg.norm(vectors[i] - vectors[j])
++            cosang = np.clip(np.dot(vectors[i], vectors[j]), -1.0, 1.0)
++            ang_deg = np.degrees(np.arccos(cosang))
++            pairs.append({"i": i, "j": j, "euclid": dist, "angle_deg": ang_deg})
++    return pairs
++
++
++# --- 두 개의 Rx에 대한 수신 전력 계산 ---
++
++def generate_two_rx_positions(tx_pos, theta_offset=0.1):
++    x_t, y_t, z_t = tx_pos
++
++    # 첫 번째 수신 위치
++    rx1 = [x_t + np.cos(theta_offset), y_t + np.sin(theta_offset), z_t]
++
++    # 두 번째 수신 위치 (다른 각도)
++    rx2 = [x_t + np.cos(-theta_offset), y_t + np.sin(-theta_offset), z_t]
++
++    return np.array(rx1), np.array(rx2)
++
++
++def calculate_two_rx_power(tx_pos, fc, Pt_dBm, Gt_dBi=8.0, Gr_dBi=8.0, multipath=None, region_center=None):
++    rx1, rx2 = generate_two_rx_positions(tx_pos)
++
++    # 두 Rx에서의 전력 계산
++    Pr1_dBm, g1 = calculate_received_power_dbm(tx_pos, rx1, fc, Pt_dBm=Pt_dBm, Gt_dBi=Gt_dBi, Gr_dBi=Gr_dBi, multipath=multipath, region_center=region_center)
++    Pr2_dBm, g2 = calculate_received_power_dbm(tx_pos, rx2, fc, Pt_dBm=Pt_dBm, Gt_dBi=Gt_dBi, Gr_dBi=Gr_dBi, multipath=multipath, region_center=region_center)
++
++    # 두 Rx의 거리를 구합니다
++    distance = np.linalg.norm(rx1 - rx2)
++
++    return Pr1_dBm, Pr2_dBm, g1, g2, distance
++
++def plot_two_rx_positions(tx_pos, fc, Pt_dBm, region_center=None):
++    Pr1_dBm, Pr2_dBm, g1, g2, distance = calculate_two_rx_power(tx_pos, fc, Pt_dBm, region_center=region_center)
++
++    # 수신 위치
++    rx1, rx2 = generate_two_rx_positions(tx_pos)
++
++    # 그래프 그리기
++    fig, ax = plt.subplots(figsize=(14, 7))
++
++    # Tx 위치 표시
++    ax.plot(tx_pos[0], tx_pos[1], 'ks', markersize=10, label=f'Tx Antenna (t={tx_pos})')
++
++    # Rx1, Rx2 위치 표시
++    ax.plot(rx1[0], rx1[1], 'ro', markersize=10, label=f'Rx1 (r1={rx1})')
++    ax.plot(rx2[0], rx2[1], 'bo', markersize=10, label=f'Rx2 (r2={rx2})')
++
++    # Tx에서 두 Rx로 가는 경로 그리기
++    ax.plot([tx_pos[0], rx1[0]], [tx_pos[1], rx1[1]], 'g--', label=f'Path 1')
++    ax.plot([tx_pos[0], rx2[0]], [tx_pos[1], rx2[1]], 'b--', label=f'Path 2')
++
++    # Rx1과 Rx2 사이의 거리 표시
++    ax.text((rx1[0] + rx2[0]) / 2, (rx1[1] + rx2[1]) / 2, f'Distance = {distance:.2f} m', fontsize=12, color='black')
++
++    ax.set_xlabel('X (meters)')
++    ax.set_ylabel('Y (meters)')
++    ax.set_title(f'System Layout (Tx at {tx_pos}, Distance between Rx1 and Rx2: {distance:.2f} m)')
++    ax.legend()
++    plt.grid(True)
++    plt.show()
+\ No newline at end of file
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"AutoImportSettings\">\r\n    <option name=\"autoReloadType\" value=\"SELECTIVE\" />\r\n  </component>\r\n  <component name=\"ChangeListManager\">\r\n    <list default=\"true\" id=\"e4de75db-262c-46ae-9081-5ad5e827debb\" name=\"변경\" comment=\"received-power\" />\r\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\r\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\r\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\r\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\r\n  </component>\r\n  <component name=\"FileTemplateManagerImpl\">\r\n    <option name=\"RECENT_TEMPLATES\">\r\n      <list>\r\n        <option value=\"Jupyter Notebook\" />\r\n      </list>\r\n    </option>\r\n  </component>\r\n  <component name=\"Git.Settings\">\r\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\r\n  </component>\r\n  <component name=\"GithubPullRequestsUISettings\"><![CDATA[{\r\n  \"selectedUrlAndAccountId\": {\r\n    \"url\": \"https://github.com/yejikwon7/Movable-Antenna.git\",\r\n    \"accountId\": \"9416c3ea-7c12-4ddf-bfbf-673f90e34a7f\"\r\n  }\r\n}]]></component>\r\n  <component name=\"ProjectColorInfo\">{\r\n  &quot;associatedIndex&quot;: 2\r\n}</component>\r\n  <component name=\"ProjectId\" id=\"34S3YKxqGFgH2I5aHFj0VUQlm72\" />\r\n  <component name=\"ProjectViewState\">\r\n    <option name=\"hideEmptyMiddlePackages\" value=\"true\" />\r\n    <option name=\"showLibraryContents\" value=\"true\" />\r\n  </component>\r\n  <component name=\"PropertiesComponent\">{\r\n  &quot;keyToString&quot;: {\r\n    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,\r\n    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,\r\n    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,\r\n    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,\r\n    &quot;git-widget-placeholder&quot;: &quot;master&quot;\r\n  }\r\n}</component>\r\n  <component name=\"SharedIndexes\">\r\n    <attachedChunks>\r\n      <set>\r\n        <option value=\"bundled-python-sdk-1bde30d8e611-7b97d883f26b-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-252.25557.130\" />\r\n      </set>\r\n    </attachedChunks>\r\n  </component>\r\n  <component name=\"TaskManager\">\r\n    <task active=\"true\" id=\"Default\" summary=\"디폴트 작업\">\r\n      <changelist id=\"e4de75db-262c-46ae-9081-5ad5e827debb\" name=\"변경\" comment=\"\" />\r\n      <created>1761193191267</created>\r\n      <option name=\"number\" value=\"Default\" />\r\n      <option name=\"presentableId\" value=\"Default\" />\r\n      <updated>1761193191267</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00001\" summary=\"received-power\">\r\n      <option name=\"closed\" value=\"true\" />\r\n      <created>1761694907804</created>\r\n      <option name=\"number\" value=\"00001\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00001\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1761694907804</updated>\r\n    </task>\r\n    <option name=\"localTasksCounter\" value=\"2\" />\r\n    <servers />\r\n  </component>\r\n  <component name=\"Vcs.Log.Tabs.Properties\">\r\n    <option name=\"TAB_STATES\">\r\n      <map>\r\n        <entry key=\"MAIN\">\r\n          <value>\r\n            <State>\r\n              <option name=\"FILTERS\">\r\n                <map>\r\n                  <entry key=\"branch\">\r\n                    <value>\r\n                      <list>\r\n                        <option value=\"HEAD\" />\r\n                      </list>\r\n                    </value>\r\n                  </entry>\r\n                </map>\r\n              </option>\r\n            </State>\r\n          </value>\r\n        </entry>\r\n      </map>\r\n    </option>\r\n  </component>\r\n  <component name=\"VcsManagerConfiguration\">\r\n    <MESSAGE value=\"received-power\" />\r\n    <option name=\"LAST_COMMIT_MESSAGE\" value=\"received-power\" />\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	(revision f332ed320706ebadbdf0e4f60d0793fa6f46e8c3)
++++ b/.idea/workspace.xml	(date 1761805202240)
+@@ -4,7 +4,16 @@
+     <option name="autoReloadType" value="SELECTIVE" />
+   </component>
+   <component name="ChangeListManager">
+-    <list default="true" id="e4de75db-262c-46ae-9081-5ad5e827debb" name="변경" comment="received-power" />
++    <list default="true" id="e4de75db-262c-46ae-9081-5ad5e827debb" name="변경" comment="received-power">
++      <change afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
++      <change afterPath="$PROJECT_DIR$/ma_model_tx1.py" afterDir="false" />
++      <change afterPath="$PROJECT_DIR$/ma_model_tx2.py" afterDir="false" />
++      <change afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
++      <change afterPath="$PROJECT_DIR$/run_simulation.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/ma_received_power.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/ma_received_power_(x).ipynb" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/ma_received_power1.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/ma_received_power_old.ipynb" afterDir="false" />
++    </list>
+     <option name="SHOW_DIALOG" value="false" />
+     <option name="HIGHLIGHT_CONFLICTS" value="true" />
+     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+@@ -14,18 +23,25 @@
+     <option name="RECENT_TEMPLATES">
+       <list>
+         <option value="Jupyter Notebook" />
++        <option value="Python Script" />
+       </list>
+     </option>
+   </component>
+   <component name="Git.Settings">
+     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+   </component>
+-  <component name="GithubPullRequestsUISettings"><![CDATA[{
+-  "selectedUrlAndAccountId": {
+-    "url": "https://github.com/yejikwon7/Movable-Antenna.git",
+-    "accountId": "9416c3ea-7c12-4ddf-bfbf-673f90e34a7f"
++  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
++  "lastFilter": {
++    "state": "OPEN",
++    "assignee": "yejikwon7"
+   }
+ }]]></component>
++  <component name="GithubPullRequestsUISettings">{
++  &quot;selectedUrlAndAccountId&quot;: {
++    &quot;url&quot;: &quot;https://github.com/yejikwon7/Movable-Antenna.git&quot;,
++    &quot;accountId&quot;: &quot;9416c3ea-7c12-4ddf-bfbf-673f90e34a7f&quot;
++  }
++}</component>
+   <component name="ProjectColorInfo">{
+   &quot;associatedIndex&quot;: 2
+ }</component>
+@@ -34,15 +50,45 @@
+     <option name="hideEmptyMiddlePackages" value="true" />
+     <option name="showLibraryContents" value="true" />
+   </component>
+-  <component name="PropertiesComponent">{
+-  &quot;keyToString&quot;: {
+-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+-    &quot;git-widget-placeholder&quot;: &quot;master&quot;
++  <component name="PropertiesComponent"><![CDATA[{
++  "keyToString": {
++    "ModuleVcsDetector.initialDetectionPerformed": "true",
++    "Python.main.executor": "Run",
++    "RunOnceActivity.ShowReadmeOnStart": "true",
++    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
++    "RunOnceActivity.git.unshallow": "true",
++    "git-widget-placeholder": "master"
+   }
+-}</component>
++}]]></component>
++  <component name="RunManager">
++    <configuration name="main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
++      <module name="code" />
++      <option name="ENV_FILES" value="" />
++      <option name="INTERPRETER_OPTIONS" value="" />
++      <option name="PARENT_ENVS" value="true" />
++      <envs>
++        <env name="PYTHONUNBUFFERED" value="1" />
++      </envs>
++      <option name="SDK_HOME" value="" />
++      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
++      <option name="IS_MODULE_SDK" value="true" />
++      <option name="ADD_CONTENT_ROOTS" value="true" />
++      <option name="ADD_SOURCE_ROOTS" value="true" />
++      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
++      <option name="PARAMETERS" value="" />
++      <option name="SHOW_COMMAND_LINE" value="false" />
++      <option name="EMULATE_TERMINAL" value="false" />
++      <option name="MODULE_MODE" value="false" />
++      <option name="REDIRECT_INPUT" value="false" />
++      <option name="INPUT_FILE" value="" />
++      <method v="2" />
++    </configuration>
++    <recent_temporary>
++      <list>
++        <item itemvalue="Python.main" />
++      </list>
++    </recent_temporary>
++  </component>
+   <component name="SharedIndexes">
+     <attachedChunks>
+       <set>
+@@ -66,7 +112,15 @@
+       <option name="project" value="LOCAL" />
+       <updated>1761694907804</updated>
+     </task>
+-    <option name="localTasksCounter" value="2" />
++    <task id="LOCAL-00002" summary="received-power">
++      <option name="closed" value="true" />
++      <created>1761695073937</created>
++      <option name="number" value="00002" />
++      <option name="presentableId" value="LOCAL-00002" />
++      <option name="project" value="LOCAL" />
++      <updated>1761695073937</updated>
++    </task>
++    <option name="localTasksCounter" value="3" />
+     <servers />
+   </component>
+   <component name="Vcs.Log.Tabs.Properties">
+Index: main.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/main.py b/main.py
+new file mode 100644
+--- /dev/null	(date 1761805592649)
++++ b/main.py	(date 1761805592649)
+@@ -0,0 +1,47 @@
++import config as cfg
++# import ma_model_tx1 as mm
++import ma_model_tx2 as mm
++import run_simulation as rs
++
++
++# --- 메인 실행 ---
++if __name__ == "__main__":
++    # --- 1. 초기 설정 ---
++    print(f"--- 시뮬레이션 파라미터 ---")
++    print(f"송신 전력 (P_t): {cfg.pt_dbm:.2f} dBm")
++    print(f"주파수 (f_c): {cfg.fc / 1e9:.2f} GHz (파장: {cfg.lambda_wave:.4f} m)")
++    print(f"Tx-Rx 대규모 거리 (d): {cfg.d_tx_rx:.1f} m")
++
++    # 1.1. 대규모 경로 손실 계산
++    path_loss_db = mm.calculate_path_loss_db(cfg.d_tx_rx, cfg.fc)
++    print(f"  >> 대규모 경로 손실 (Path Loss): {path_loss_db:.2f} dB")
++
++    # 1.2. 채널 환경 생성
++    channel_env = mm.create_channel_environment()
++    theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
++    print(f"\n--- 채널 환경 (Seed: {cfg.random_seed}) ---")
++    print(f"Tx 경로 수 (L_t): {cfg.lt}, Rx 경로 수 (L_r): {cfg.lr}")
++    print(f"MA 수신 영역 (A): {cfg.A_normalized}λ x {cfg.A_normalized}λ")
++
++    # 1.3. 고정된 g(t) 계산
++    g_t_fixed = mm.calculate_g_t(cfg.t_pos_fixed, theta_t, phi_t)
++
++    # --- 2. 단일 지점 분석 ---
++    rs.run_single_point_analysis(g_t_fixed, channel_env, path_loss_db)
++
++    # --- 3. 2D 맵 시뮬레이션 ---
++    r_example_used, summary = rs.run_single_point_analysis(g_t_fixed, channel_env, path_loss_db)
++    rs.plot_system_layout(r_example_used, channel_env, summary_text=summary)
++
++    power_map = rs.run_2d_map_simulation(g_t_fixed, channel_env, path_loss_db)
++
++    snr_map = rs.snr_map_db(power_map, BW=20e6, NF_dB=5.0, T=290.0)
++    rs.plot_2d_map(snr_map, label='SNR (dB)')
++
++    # --- 4. MA vs FPA 비교 ---
++    rs.compare_ma_vs_fpa(power_map, g_t_fixed, channel_env, path_loss_db)
++
++    # --- 5. 시각화 ---
++    rs.plot_2d_map(power_map)
++
++    mm.calculate_path_distances(channel_env[2], channel_env[3])  # (theta_r, phi_r)
+Index: run_simulation.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/run_simulation.py b/run_simulation.py
+new file mode 100644
+--- /dev/null	(date 1761805714975)
++++ b/run_simulation.py	(date 1761805714975)
+@@ -0,0 +1,294 @@
++import numpy as np
++import matplotlib.pyplot as plt
++import config as cfg
++# import ma_model_tx1 as mm
++import ma_model_tx2 as mm
++import time
++
++# --- SNR utils ---
++def noise_power_dbm(BW=20e6, NF_dB=5.0, T=290.0):
++    k = 1.380649e-23
++    N0_W = k * T * BW
++    return 10*np.log10(N0_W) + 30 + NF_dB  # dBm
++
++def snr_map_db(power_map_dbm, BW=20e6, NF_dB=5.0, T=290.0):
++    n_dbm = noise_power_dbm(BW, NF_dB, T)
++    return power_map_dbm - n_dbm
++
++def run_single_point_analysis(g_t_fixed, channel_env, path_loss_db):
++    theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
++    r_example = np.array([0.5 * cfg.lambda_wave, 0.2 * cfg.lambda_wave])
++
++    f_r = mm.calculate_f_r(r_example, theta_r, phi_r)
++    h = mm.calculate_channel_coefficient(g_t_fixed, f_r, sigma_matrix)
++    gain_lin = mm.calculate_channel_gain(h)
++    pr_dbm = mm.calculate_received_power_dbm(cfg.pt_dbm, path_loss_db, gain_lin)
++    snr_db = pr_dbm - noise_power_dbm(BW=20e6, NF_dB=5.0, T=290.0)
++
++    print("\n--- 단일 지점 상세 분석 ---")
++    print(f"r = {r_example} m")
++    print(f"|h(t,r)|^2 = {gain_lin:.4f}")
++    print(f"P_rx = {pr_dbm:.2f} dBm,  SNR ≈ {snr_db:.2f} dB")
++    print(f"AoA count L_r = {len(theta_r)}, AoD count L_t = {len(theta_t)}")
++
++    # 플롯에 쓸 요약 문자열
++    summary = (f"|h(t,r)|² = {gain_lin:.3f}\n"
++               f"P_rx = {pr_dbm:.2f} dBm\n"
++               f"SNR ≈ {snr_db:.2f} dB\n"
++               f"AoA count L_r = {len(theta_r)}\n"
++               f"AoD count L_t = {len(theta_t)}")
++    return r_example, summary
++
++
++def run_2d_map_simulation(g_t_fixed, channel_env, path_loss_db):
++    print(f"\n--- 2D 맵 시뮬레이션 ({cfg.A_normalized}λ x {cfg.A_normalized}λ) ---")
++    print(f"{cfg.grid_points}x{cfg.grid_points} 맵 계산 시작...")
++
++    theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
++
++    # Rx 위치 그리드 생성
++    half_A = cfg.A / 2
++    x_r_vals = np.linspace(-half_A, half_A, cfg.grid_points)
++    y_r_vals = np.linspace(-half_A, half_A, cfg.grid_points)
++
++    received_power_map_dbm = np.zeros((cfg.grid_points, cfg.grid_points))
++
++    start_time = time.time()
++
++    # 2D 그리드 순회
++    for i in range(cfg.grid_points):
++        for j in range(cfg.grid_points):
++            r_current = np.array([x_r_vals[i], y_r_vals[j]])
++
++            f_r_current = mm.calculate_f_r(r_current, theta_r, phi_r)
++            h_tr_current = mm.calculate_channel_coefficient(g_t_fixed, f_r_current, sigma_matrix)
++            gain_current_linear = mm.calculate_channel_gain(h_tr_current)
++
++            received_power_map_dbm[j, i] = mm.calculate_received_power_dbm(
++                cfg.pt_dbm,
++                path_loss_db,
++                gain_current_linear
++            )
++
++    end_time = time.time()
++    print(f"... 맵 계산 완료 (소요 시간: {end_time - start_time:.2f} 초)")
++
++    return received_power_map_dbm
++
++
++def plot_2d_map(power_map_dbm, label='Received Power (dBm)'):
++    extent = [-cfg.A_normalized / 2, cfg.A_normalized / 2,
++              -cfg.A_normalized / 2, cfg.A_normalized / 2]
++
++    plt.figure(figsize=(10, 8))
++    im = plt.imshow(power_map_dbm,
++                    extent=extent,
++                    origin='lower',
++                    aspect='equal',
++                    cmap='jet')
++
++    plt.colorbar(im, label=label)
++    plt.xlabel('Normalized coordinate x_r / λ')
++    plt.ylabel('Normalized coordinate y_r / λ')
++    plt.gca().set_aspect('equal', adjustable='box')
++    title = (f'Received Power Map (L_t={cfg.lt}, L_r={cfg.lr}) '
++             f'(Tx at {cfg.d_tx_rx}m distance)')
++    plt.title(title)
++    plt.show()
++
++
++def compare_ma_vs_fpa(power_map_dbm, g_t_fixed, channel_env, path_loss_db):
++    theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
++
++    # FPA 성능 계산 (중앙 [0,0] 위치 기준)
++    f_r_fpa = mm.calculate_f_r(cfg.FPA_pos_fixed, theta_r, phi_r)
++    h_tr_fpa = mm.calculate_channel_coefficient(g_t_fixed, f_r_fpa, sigma_matrix)
++    gain_fpa_linear = mm.calculate_channel_gain(h_tr_fpa)
++    power_fpa_dbm = mm.calculate_received_power_dbm(
++        cfg.pt_dbm,
++        path_loss_db,
++        gain_fpa_linear
++    )
++
++    # MA 최대 성능
++    power_ma_max_dbm = np.max(power_map_dbm)
++
++    print(f"\n--- MA vs FPA 성능 비교 (at {cfg.d_tx_rx}m) ---")
++    print(f"FPA (at local [0,0]) 수신 전력: {power_fpa_dbm:.2f} dBm")
++    print(f"MA (영역 내 최대) 수신 전력: {power_ma_max_dbm:.2f} dBm")
++    print(f"성능 향상 (MA Gain): {power_ma_max_dbm - power_fpa_dbm:.2f} dB")
++
++
++def plot_system_layout(r_example_pos, channel_env, summary_text=None):
++    """
++    tx = 1
++    print(f"\n[시각화 1: 시스템 레이아웃]")
++
++    theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
++    L_r = cfg.lr
++    A_meters = cfg.A
++    D_tx_rx = cfg.d_tx_rx
++    half_A = A_meters / 2
++
++    fig, (axL, axR) = plt.subplots(
++        1, 2, figsize=(14, 6),
++        gridspec_kw={'width_ratios': [1.6, 1]}  # 왼쪽을 조금 더 넓게
++    )
++
++    # ---------- (좌) 글로벌 배치 ----------
++    # Tx 심볼
++    axL.plot(-D_tx_rx, 0, 'ks', markersize=10, label='Tx antenna')
++    axL.text(-D_tx_rx, 0.15, 'Tx', ha='center')
++
++    # Rx MA 영역(오른쪽)
++    rx_box = plt.Rectangle((-half_A, -half_A), A_meters, A_meters,
++                           edgecolor='tab:blue', facecolor='none', lw=1.8,
++                           label=f'Rx MA region ({cfg.A_normalized}λ × {cfg.A_normalized}λ)')
++    axL.add_patch(rx_box)
++
++    # Rx 두 점: (1) FPA 고정, (2) MA 현재
++    axL.plot(cfg.FPA_pos_fixed[0], cfg.FPA_pos_fixed[1], 'gx', ms=10, mew=2, label='Rx FPA (fixed)')
++    axL.plot(r_example_pos[0], r_example_pos[1], 'ro', ms=8, label='Rx MA (current)')
++
++    # Tx-Rx 거리 주석
++    axL.annotate(f'd = {D_tx_rx:.1f} m',
++                 xy=(-D_tx_rx, 0), xytext=(-D_tx_rx/2, -0.1*A_meters),
++                 arrowprops=dict(arrowstyle='<->'), ha='center')
++
++    axL.set_title('Global layout')
++    axL.set_xlabel('x (m)'); axL.set_ylabel('y (m)')
++    # 보기 좋게 좌우 여백 확보
++    axL.set_xlim(-D_tx_rx - A_meters, A_meters)
++    ylim = cfg.d_tx_rx * 0.05
++    axL.set_ylim(-ylim, ylim)
++    axL.set_aspect('equal', adjustable='box')
++    axL.grid(True, ls=':')
++    axL.legend(loc='lower right')
++
++    v_aoa = mm.aoa_unit_vectors(theta_r, phi_r)
++    pair_info = mm.pairwise_path_metrics(v_aoa)
++
++    # ---------- (우) Rx 영역 줌인 ----------
++    axR.add_patch(plt.Rectangle((-half_A, -half_A), A_meters, A_meters,
++                                edgecolor='tab:blue', facecolor='none', lw=1.8))
++    # 두 Rx 위치
++    axR.plot(cfg.FPA_pos_fixed[0], cfg.FPA_pos_fixed[1], 'gx', ms=10, mew=2, label='Rx FPA (fixed)')
++    axR.plot(r_example_pos[0], r_example_pos[1], 'ro', ms=8, label='Rx MA (current)')
++
++    # 두 위치 사이 거리
++    d_rx = np.linalg.norm(r_example_pos - cfg.FPA_pos_fixed)
++    axR.text(0.02, 0.98, f'‖r_MA - r_FPA‖ = {d_rx:.3f} m',
++             transform=axR.transAxes, ha='left', va='top',
++             bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='0.7'))
++
++    # AoA 화살표 (기존 코드 재사용)
++    arrow_length = half_A * 0.9
++    for i in range(L_r):
++        dx = -arrow_length * np.cos(theta_r[i]) * np.sin(phi_r[i])
++        dy = -arrow_length * np.sin(theta_r[i])
++        if np.hypot(dx, dy) < 1e-6:
++            dx = -arrow_length * 0.707; dy = -arrow_length * 0.707
++        axR.arrow(r_example_pos[0] - dx, r_example_pos[1] - dy, dx, dy,
++                  head_width=half_A*0.06, head_length=half_A*0.1,
++                  fc='green', ec='green', alpha=0.7, length_includes_head=True)
++        axR.text(r_example_pos[0] - 1.05*dx, r_example_pos[1] - 1.05*dy,
++                 f'Path {i+1}', color='green', fontsize=9)
++
++    axR.set_title('Rx region (zoom-in)')
++    axR.set_xlim(-half_A, half_A); axR.set_ylim(-half_A, half_A)
++    axR.set_xlabel('x (m)'); axR.set_ylabel('y (m)')
++    axR.set_aspect('equal', adjustable='box'); axR.grid(True, ls=':')
++    axR.legend(loc='upper right')
++
++    plt.tight_layout()
++    plt.show()
++
++    if summary_text:
++        axR.text(0.02, 0.98, summary_text, transform=axR.transAxes,
++                 va='top', ha='left',
++                 bbox=dict(boxstyle='round,pad=0.35', fc='white', ec='0.75'))
++
++    # 콘솔에도 쌍별 거리/각도 요약 출력(요청 3)
++    if pair_info:
++        print("\n[Pairwise AoA metrics at Rx]")
++        for p in pair_info:
++            print(f"  Path {p['i']+1} ↔ Path {p['j']+1}: "
++                  f"euclid={p['euclid']:.4f}, angle={p['angle_deg']:.2f}°")
++
++    """
++
++    print(f"\n[시각화 1: 시스템 레이아웃 (요청 1, 2, 4)]")
++
++    theta_t, phi_t, theta_r, phi_r, sigma_matrix = channel_env
++    L_r = cfg.lr
++    A_meters = cfg.A
++    D_tx_rx = cfg.d_tx_rx
++
++    fig, ax = plt.subplots(figsize=(14, 7))
++
++    half_A = A_meters / 2
++
++    # --- 1. Tx 측 그리기 (왼쪽) ---
++    tx_region = plt.Rectangle((-D_tx_rx - 0.5, -0.5), 1, 1,
++                              edgecolor='black', facecolor='gray',
++                              alpha=0.5, label='Tx Region (Symbolic)')
++    ax.add_patch(tx_region)
++    # Tx 안테나
++    ax.plot(-D_tx_rx, 0, 'ks', markersize=10, label=f'Tx Antenna (t={cfg.t_pos_fixed})')
++    ax.text(-D_tx_rx, 0.2, 'Tx', ha='center', va='bottom', fontsize=12)
++
++    # --- 2. Rx 측 그리기 (오른쪽) ---
++    # Rx MA 이동 영역 (Zoom-in)
++    rx_ma_region = plt.Rectangle((-half_A, -half_A), A_meters, A_meters,
++                                 edgecolor='blue', facecolor='blue',
++                                 alpha=0.1, label=f'MA Region ({A_meters*100:.1f}cm x {A_meters*100:.1f}cm)')
++    ax.add_patch(rx_ma_region)
++    ax.text(0, half_A, 'MA Receive Region\n(Local Coordinate System)',
++            ha='center', va='bottom', color='blue', fontsize=10)
++
++    # (요청 2) Rx 안테나 현재 위치
++    rx_pos_x, rx_pos_y = r_example_pos
++    ax.plot(rx_pos_x, rx_pos_y, 'ro', markersize=10,
++            label=f'Rx Antenna (r=[{rx_pos_x:.2f}, {rx_pos_y:.2f}]m)')
++
++    # (요청 2) 수신 경로(AoA) 그리기
++    arrow_length = half_A * 0.8
++    for i in range(L_r):
++        # 2D 평면의 투영 각도
++        dx = -arrow_length * np.cos(theta_r[i]) * np.sin(phi_r[i])
++        dy = -arrow_length * np.sin(theta_r[i])
++
++        # 벡터가 0이 되는 것 방지
++        if np.linalg.norm([dx, dy]) < 1e-6:
++            dx = -arrow_length * 0.707
++            dy = -arrow_length * 0.707
++
++        ax.arrow(rx_pos_x - dx, rx_pos_y - dy, dx, dy,
++                 head_width=half_A * 0.05, head_length=half_A * 0.1,
++                 fc='green', ec='green', alpha=0.6)
++        ax.text(rx_pos_x - dx*1.1, rx_pos_y - dy*1.1, f'Path {i+1}',
++                ha='center', va='center', color='green', alpha=0.8)
++
++    # --- 3. 거리 및 축 설정 ---
++    # (요청 4) Tx-Rx 거리 표시
++    ax.arrow(-D_tx_rx + 1, -half_A * 2, D_tx_rx - 2, 0,
++             head_width=0.0, head_length=0.0,
++             color='black', linestyle=':', lw=1.5)
++    ax.text(-D_tx_rx / 2, -half_A * 2, f'Large-Scale Distance (d) = {D_tx_rx} m',
++            ha='center', va='top', fontsize=12)
++
++    # 전체 레이아웃 설정
++    ax.set_xlabel('Global X-coordinate (m)')
++    ax.set_ylabel('Global Y-coordinate (m)')
++    ax.set_title(f'System Layout (L_t={cfg.lt}, L_r={cfg.lr})', fontsize=16)
++
++    plot_margin_x = D_tx_rx * 0.1
++    plot_margin_y = half_A * 3
++    ax.set_xlim(-D_tx_rx - plot_margin_x, plot_margin_x)
++    ax.set_ylim(-plot_margin_y, plot_margin_y)
++
++    ax.legend(loc='upper right')
++    ax.grid(True, linestyle='--')
++    ax.set_aspect('equal')
++    plt.tight_layout()
++    plt.show()
+\ No newline at end of file
+Index: config.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/config.py b/config.py
+new file mode 100644
+--- /dev/null	(date 1761740821327)
++++ b/config.py	(date 1761740821327)
+@@ -0,0 +1,31 @@
++import numpy as np
++
++# --- 1. 시뮬레이션 파라미터 ---
++
++# 1.1. 시스템 파라미터
++pt_dbm = 10.0       # 송신 전력 (Pt) (단위: dBm)
++fc = 3.5e9          # 시스템 주파수 (Carrier Frequency) (단위: Hz)
++d_tx_rx = 50.0       # Tx-Rx 사이의 대규모(large-scale) 거리 (단위: m)
++
++# 1.2. 채널 파라미터
++lt = 3              # 송신(Tx) 경로의 수
++lr = 3              # 수신(Rx) 경로의 수
++random_seed = 42     # 재현성을 위한 랜덤 시드
++
++# 1.3. MA (Movable Antenna) 파라미터
++A_normalized = 2.0   # 수신 영역 크기 (파장 단위, 예: 2.0 -> 2λ x 2λ)
++grid_points = 200    # 2D 맵 해상도 (이 값을 올리면 더 정밀해짐)
++
++# --- 2. 물리 상수 ---
++c = 3.0e8    # 빛의 속도 (m/s)
++
++# --- 3. 계산된 파라미터 ---
++lambda_wave = c / fc  # 파장 (Wavelength)
++A = A_normalized * lambda_wave # 실제 MA 이동 영역 크기 (미터)
++pt_watts = (10**(pt_dbm / 10)) / 1000 # 송신 전력 (Watts)
++
++# Tx는 *로컬 좌표* [0,0]에 고정
++t_pos_fixed = np.array([0.0, 0.0])
++
++# FPA는 *로컬 좌표* [0,0] (영역 중앙)에 고정
++FPA_pos_fixed = np.array([0.0, 0.0])
+\ No newline at end of file
+Index: ma_model_tx1.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/ma_model_tx1.py b/ma_model_tx1.py
+new file mode 100644
+--- /dev/null	(date 1761787159796)
++++ b/ma_model_tx1.py	(date 1761787159796)
+@@ -0,0 +1,142 @@
++import numpy as np
++import config as cfg  # 설정 파일 임포트
++
++
++# --- 유틸리티 함수 ---
++
++def watts_to_dbm(watts):
++    epsilon = 1e-30
++    return 10 * np.log10((watts + epsilon) * 1000)
++
++
++def calculate_path_loss_db(distance_m, f_c_hz):
++    epsilon = 1e-9  # 0m 거리 방지
++    lambda_wave = cfg.c / f_c_hz
++    path_loss_linear = ((4 * np.pi * (distance_m + epsilon)) / lambda_wave) ** 2
++    path_loss_db = 10 * np.log10(path_loss_linear)
++    return path_loss_db
++
++def create_channel_environment():
++    np.random.seed(cfg.random_seed)
++
++    # 1. 송신(Tx) 측 AoDs
++    theta_t = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lt)
++    phi_t = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lt)
++
++    # 2. 수신(Rx) 측 AoAs
++    theta_r = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lr)
++    phi_r = np.random.uniform(-np.pi / 2, np.pi / 2, cfg.lr)
++
++    # 3. 경로 응답 행렬 (Sigma)
++    # (평균 전력 1로 정규화된 CSCG)
++    sigma_matrix = (np.random.randn(cfg.lr, cfg.lt) +
++                    1j * np.random.randn(cfg.lr, cfg.lt)) / np.sqrt(2)
++
++    return theta_t, phi_t, theta_r, phi_r, sigma_matrix
++
++
++def calculate_g_t(t_pos, theta_t, phi_t):
++    x_t, y_t = t_pos
++
++    # rho_t_j 계산 (크기 L_T)
++    rho_t_j_vec = (x_t * np.cos(theta_t) * np.sin(phi_t) +
++                   y_t * np.sin(theta_t))
++
++    # g(t) 벡터 계산 (크기 L_T)
++    g_t = np.exp(1j * 2 * np.pi * rho_t_j_vec / cfg.lambda_wave)
++
++    return g_t
++
++
++def calculate_f_r(r_pos, theta_r, phi_r):
++    x_r, y_r = r_pos
++
++    # rho_r_i 계산 (크기 L_R)
++    rho_r_i_vec = (x_r * np.cos(theta_r) * np.sin(phi_r) +
++                   y_r * np.sin(theta_r))
++
++    # f(r) 벡터 계산 (크기 L_R)
++    f_r = np.exp(1j * 2 * np.pi * rho_r_i_vec / cfg.lambda_wave)
++
++    return f_r
++
++
++def calculate_channel_coefficient(g_t, f_r, sigma_matrix):
++    # f(r)^H (Hermitian transpose), (1, L_R)
++    f_r_hermitian = f_r.conj().T.reshape(1, -1)
++
++    # g(t), (L_T, 1)
++    g_t_col = g_t.reshape(-1, 1)
++
++    # h = (1, L_R) @ (L_R, L_T) @ (L_T, 1)
++    h = (f_r_hermitian @ sigma_matrix @ g_t_col).item()
++
++    return h
++
++
++# --- 전력 계산 함수 ---
++
++def calculate_channel_gain(h_tr):
++    return np.abs(h_tr) ** 2
++
++
++def calculate_received_power_dbm(p_t_dbm, path_loss_db, small_scale_gain_linear):
++    epsilon = 1e-30
++    small_scale_gain_db = 10 * np.log10(small_scale_gain_linear + epsilon)
++
++    received_power_dbm = p_t_dbm - path_loss_db + small_scale_gain_db
++
++    return received_power_dbm
++
++
++def calculate_path_distances(theta_r, phi_r):
++    cfg.lr = len(theta_r)
++    if cfg.lr < 2:
++        print("  (경로가 1개뿐이라 경로 간 거리를 계산할 수 없습니다.)")
++        return
++
++    # 3D 구면 좌표계(theta, phi)를 3D 직교 좌표계(x,y,z) 방향 벡터로 변환
++    vectors = np.zeros((cfg.lr, 3))
++    vectors[:, 0] = np.cos(theta_r) * np.sin(phi_r)  # x
++    vectors[:, 1] = np.sin(theta_r)  # y
++    vectors[:, 2] = np.cos(theta_r) * np.cos(phi_r)  # z (Far-field이므로 z>0 가정)
++
++    print(f"\n[분석 2: {cfg.lr}개 수신 경로(AoA)간 방향 벡터 거리]")
++
++    for i in range(cfg.lr):
++        for j in range(i + 1, cfg.lr):
++            # 두 벡터 (v1, v2) 간의 유클리드 거리 계산: ||v1 - v2||
++            dist = np.linalg.norm(vectors[i] - vectors[j])
++            # 두 벡터 간의 각도(라디안) 계산
++            dot_product = np.dot(vectors[i], vectors[j])
++            angle_rad = np.arccos(np.clip(dot_product, -1.0, 1.0))
++            angle_deg = np.degrees(angle_rad)
++
++            print(f"  - 경로 {i + 1} ↔ 경로 {j + 1}:")
++            print(f"    - 방향 벡터 간 거리: {dist:.4f} (0~2 사이 값)")
++            print(f"    - 두 경로 사이 각도: {angle_deg:.2f} 도")
++
++def aoa_unit_vectors(theta_r, phi_r):
++    """
++    Rx 수신 경로의 (theta, phi)를 3D 단위벡터로 변환 (x,y,z).
++    """
++    v = np.zeros((len(theta_r), 3))
++    v[:, 0] = np.cos(theta_r) * np.sin(phi_r)  # x
++    v[:, 1] = np.sin(theta_r)                  # y
++    v[:, 2] = np.cos(theta_r) * np.cos(phi_r)  # z
++    return v
++
++def pairwise_path_metrics(vectors):
++    """
++    경로 단위벡터들 간 유클리드 거리와 각도(도)를 쌍별로 계산해서 리스트로 반환.
++    """
++    L = vectors.shape[0]
++    pairs = []
++    for i in range(L):
++        for j in range(i+1, L):
++            dist = np.linalg.norm(vectors[i] - vectors[j])
++            cosang = np.clip(np.dot(vectors[i], vectors[j]), -1.0, 1.0)
++            ang_deg = np.degrees(np.arccos(cosang))
++            pairs.append({"i": i, "j": j, "euclid": dist, "angle_deg": ang_deg})
++    return pairs
++
+diff --git a/ma_received_power1.ipynb b/ma_received_power_old.ipynb
+rename from ma_received_power1.ipynb
+rename to ma_received_power_old.ipynb
+diff --git a/ma_received_power.ipynb b/ma_received_power_(x).ipynb
+rename from ma_received_power.ipynb
+rename to ma_received_power_(x).ipynb
