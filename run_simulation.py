@@ -271,7 +271,6 @@ def rx_metrics(r_pos, g_t_fixed, channel_env, path_loss_db, BW=20e6, NF_dB=5.0):
         "gain": gain,
         "Pr_dBm": pr_dbm,
         "SNR_dB": snr_db_val,
-        # 참조용으로 AoA/AoD 전체(경로별) 목록을 같이 넘김
         "AoA_deg": np.degrees(theta_r),
         "AoD_deg": np.degrees(theta_t),
     }

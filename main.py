@@ -37,7 +37,7 @@ if __name__ == "__main__":
     r1, r2 = mm.make_two_rx_positions_random_square(center,
                                            region_size_m=None,
                                            min_sep_ratio=0.2,
-                                           seed=2025)
+                                           seed=2000)
 
     rs.plot_system_layout_two_rx(r1, r2, g_t_fixed, channel_env, path_loss_db)
 
